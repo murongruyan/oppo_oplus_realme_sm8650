@@ -28,12 +28,12 @@ on:
         description: '分支名/自定义版本标识(例如: susfs-main/慕容茹艳)'
         required: false
         type: string
-        default: 'susfs-main/慕容雪绒'
+        default: 'susfs-main/慕容茹艳'
       susfs_source:
         description: 'SUSFS模块下载源(CI/Release/None)'
         required: true
         type: choice
-        default: 'Release'
+        default: 'CI'
         options:
           - 'CI'
           - 'Release'
@@ -95,7 +95,7 @@ on:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
         type: string
-        default: '慕容茹艳'
+        default: 'android14-慕容茹艳'
 
 jobs:
   build:
@@ -601,60 +601,48 @@ jobs:
           fi
 
       - name: 下载最新 SukiSU-Ultra APK
-  if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
-  continue-on-error: true
-  env:
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  run: |
-    cd kernel_workspace/AnyKernel3
-    echo "正在从 CI 下载最新 SukiSU-Ultra APK..."
-    run_id=$(gh api \
-      "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=1" \
-      --jq '.workflow_runs[0].id' || echo "")
-    if [[ -z "$run_id" ]]; then
-      echo "没有找到成功的 workflow 运行"
-    else
-      artifact_url=$(gh api \
-        "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" | \
-        jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
-      if [[ -z "$artifact_url" ]]; then
-        echo "没有找到名为 'manager' 的构件"
-      else
-        echo "正在从: $artifact_url 下载"
-        curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
-        unzip -j manager.zip "*.apk" -d ./
-        # 删除下载的 zip 文件，只保留解压后的 APK
-        rm -f manager.zip
-      fi
-    fi
+        if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd kernel_workspace/AnyKernel3
+          echo "正在从 CI 下载最新 SukiSU-Ultra APK..."
+          run_id=$(gh api \
+            "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=1" \
+            --jq '.workflow_runs[0].id' || echo "")
+          if [[ -z "$run_id" ]]; then
+            echo "没有找到成功的 workflow 运行"
+          else
+            artifact_url=$(gh api \
+              "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" | \
+              jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
+            if [[ -z "$artifact_url" ]]; then
+              echo "没有找到名为 'manager' 的构件"
+            else
+              echo "正在从: $artifact_url 下载"
+              curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
+              unzip -j manager.zip "*.apk" -d ./
+              # 删除下载的 zip 文件，只保留解压后的 APK
+              rm -f manager.zip
+            fi
+          fi
 
-- name: 重新打包 AnyKernel3 (包含下载的文件)
-  if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
-  run: |
-    cd kernel_workspace/AnyKernel3
-    # 清理不必要的文件，只保留内核镜像和下载的模块/APK
-    # 删除可能存在的临时文件
-    rm -f *.zip *.txt README.md
-    
-    # 确保只保留必要的文件
-    keep_files=("Image" "*.apk" "*.zip" "zram" "modules" "patch" "META-INF" "tools" "anykernel.sh")
-    find . -maxdepth 1 -type f ! \( -name "Image" -o -name "*.apk" -o -name "*.zip" -o -name "anykernel.sh" \) -exec rm -f {} \;
-    
-    # 重新打包
-    if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
-      KSU_TYPENAME="SukiSU"
-    else
-      KSU_TYPENAME="KSUNext"
-    fi
-    if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-      zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ github.event.inputs.kernel_suffix }}.zip ./*
-    else
-      zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
-    fi
-    
-    # 显示最终打包内容
-    echo "最终刷机包内容:"
-    zipinfo -1 ../AnyKernel3_*.zip
+      - name: 重新打包 AnyKernel3 (包含下载的文件)
+        if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
+        run: |
+          cd kernel_workspace
+          cd AnyKernel3
+          if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
+            KSU_TYPENAME="SukiSU"
+          else
+            KSU_TYPENAME="KSUNext"
+          fi
+          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
+            zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ github.event.inputs.kernel_suffix }}.zip ./*
+          else
+            zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
+          fi
 
       - name: 上传 ZIP 工件
         uses: actions/upload-artifact@v4

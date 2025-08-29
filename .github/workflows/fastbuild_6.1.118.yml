@@ -28,12 +28,12 @@ on:
         description: '分支名/自定义版本标识(例如: susfs-main/慕容茹艳)'
         required: false
         type: string
-        default: 'susfs-main/慕容雪绒'
+        default: 'susfs-main/慕容茹艳'
       susfs_source:
         description: 'SUSFS模块下载源(CI/Release/None)'
         required: true
         type: choice
-        default: 'Release'
+        default: 'CI'
         options:
           - 'CI'
           - 'Release'
@@ -95,7 +95,7 @@ on:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
         type: string
-        default: '慕容茹艳'
+        default: '慕容雪绒'
 
 jobs:
   build:

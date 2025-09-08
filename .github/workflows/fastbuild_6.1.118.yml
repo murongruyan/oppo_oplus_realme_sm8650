@@ -546,30 +546,103 @@ jobs:
             rm -f Image
             mv oImage Image
           fi
-          
-      - name: 克隆 AnyKernel3 并打包
+         
+      - name: 克隆 AnyKernel3 并准备打包
         run: |
           cd kernel_workspace
+          # 设置变量
+          REPO_URL="https://github.com/murongruyan/oppo_oplus_realme_sm8650"
+          ANYKERNEL_URL="${REPO_URL}/raw/main/anykernel.sh"
+          ZRAM_URL="${REPO_URL}/raw/main/zram.zip"
+    
+          # 克隆 AnyKernel3
           git clone https://github.com/cctv18/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cd AnyKernel3
+    
+          # 复制内核镜像
           cp ../common/out/arch/arm64/boot/Image ./Image
           if [[ ! -f ./Image ]]; then
-            echo "未找到内核镜像文件，构建可能出错"
+            echo "❌ 未找到内核镜像文件，构建可能出错"
             exit 1
           fi
-          if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
+
+          # 设置内核类型名称
+          if [[ "${{ github.event.inputs.ksu_type }}" == "sukisu" ]]; then
             KSU_TYPENAME="SukiSU"
           else
             KSU_TYPENAME="KSUNext"
           fi
-          if [[ "${{ github.event.inputs.lz4_enable }}" == "2" || "${{ github.event.inputs.lz4_enable }}" == "3" ]]; then
-            wget https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8650/refs/heads/main/zram.zip
-          fi
-          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ github.event.inputs.kernel_suffix }}.zip ./*
+
+          # 1. 下载自定义 anykernel.sh 脚本
+          echo "⬇️ 下载自定义 anykernel.sh 脚本..."
+          # 备份原始文件
+          [[ -f anykernel.sh ]] && mv anykernel.sh anykernel.sh.bak
+    
+          if curl -L --connect-timeout 30 --retry 3 --retry-delay 5 --progress-bar -O "${ANYKERNEL_URL}"; then
+            # 验证文件完整性
+            if [[ ! -s anykernel.sh ]]; then
+              echo "⚠️ 警告: anykernel.sh 文件为空"
+              # 恢复备份
+              [[ -f anykernel.sh.bak ]] && mv anykernel.sh.bak anykernel.sh
+            else
+              chmod +x anykernel.sh
+              echo "✅ anykernel.sh 下载成功 (大小: $(du -h anykernel.sh | cut -f1))"
+              rm -f anykernel.sh.bak  # 删除备份
+            fi
           else
-            zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ env.KERNEL_NAME }}.zip ./*
+            echo "⚠️ anykernel.sh 下载失败"
+            # 恢复备份
+            [[ -f anykernel.sh.bak ]] && mv anykernel.sh.bak anykernel.sh
+          fi
+
+          # 确保最终有可用的 anykernel.sh
+          if [[ -f anykernel.sh ]]; then
+            chmod +x anykernel.sh
+          else
+            echo "❌ 错误：无可用 anykernel.sh 脚本"
+            exit 1
+          fi
+
+          # 2. 按需下载 zram 模块
+          if [[ "${{ github.event.inputs.lz4_enable }}" =~ ^[23]$ ]]; then
+            echo "⬇️ 下载 zram.zip 模块..."
+            if curl -L --connect-timeout 30 --retry 3 --retry-delay 5 --progress-bar -o zram.zip "${ZRAM_URL}"; then
+              # 验证文件类型
+              if [[ $(file -b --mime-type zram.zip) != "application/zip" ]]; then
+                echo "⚠️ 警告: zram.zip 文件类型错误，删除无效文件"
+                rm -f zram.zip
+              else
+                echo "✅ zram.zip 下载成功 (大小: $(du -h zram.zip | cut -f1))"
+              fi
+            else
+              echo "⚠️ zram.zip 下载失败"
+            fi
+          fi
+
+          # 打包操作
+          ZIP_PREFIX="AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15"
+          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
+            ZIP_NAME="../${ZIP_PREFIX}_${{ github.event.inputs.kernel_suffix }}.zip"
+          else
+            ZIP_NAME="../${ZIP_PREFIX}_${{ env.KERNEL_NAME }}.zip"
+          fi
+    
+          # 创建压缩包
+          echo "📦 正在创建压缩包: $(basename "${ZIP_NAME}")"
+          zip -r9 "${ZIP_NAME}" ./*
+    
+          # 验证压缩包
+          if [[ -f "${ZIP_NAME}" ]]; then
+            echo "✅ 打包成功！文件大小: $(du -h "${ZIP_NAME}" | cut -f1)"
+            # 添加额外校验
+            if ! unzip -tq "${ZIP_NAME}" &>/dev/null; then
+              echo "❌ 压缩包校验失败，文件可能损坏"
+              exit 1
+            fi
+          else
+            echo "❌ 打包失败，未生成压缩包"
+            exit 1
           fi
 
       - name: 下载最新 SUSFS 模块

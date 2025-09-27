@@ -81,11 +81,16 @@ on:
         options:
           - 'true'
           - 'false'
+      baseband_guard:
+        description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
+        required: false
+        type: boolean
+        default: 'false'
       ssg_rekernel_enable:
         description: '是否启用三星SSG IO调度器及Re-Kernel支持(0=均不安装,1=安装SSG IO调度器,2=安装Re-Kernel,3=均安装,默认1)'
         required: true
         type: choice
-        default: '2'
+        default: '0'
         options:
           - '0'
           - '1'
@@ -95,7 +100,7 @@ on:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
         type: string
-        default: '慕容雪绒'
+        default: 'android14-慕容雪绒'
 
 jobs:
   build:
@@ -134,6 +139,7 @@ jobs:
           restore-keys: |
             ccache-new-6.1.118-${{ runner.os }}-
             ccache-new-6.1.118-
+            ccache-new-
       
       - name: 初始化并配置ccache
         run: |
@@ -286,11 +292,11 @@ jobs:
             cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
             cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
             cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-            cp ./SukiSU_patch/hooks/syscall_hooks.patch ./common/
+            cp ./SukiSU_patch/hooks/scope_min_manual_hooks_v1.5.patch ./common/
             cp ./SukiSU_patch/69_hide_stuff.patch ./common/
             cd ./common
             patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-            patch -p1 < syscall_hooks.patch || true
+            patch -p1 < scope_min_manual_hooks_v1.5.patch || true
             patch -p1 < 69_hide_stuff.patch || true
           else
             echo "正在添加KernelSU Next补丁..."
@@ -299,11 +305,11 @@ jobs:
             cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
             cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
             cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-            cp ./kernel_patches/next/scope_min_manual_hooks_v1.4.patch ./common/
+            cp ./kernel_patches/next/scope_min_manual_hooks_v1.5.patch ./common/
             cp ./kernel_patches/69_hide_stuff.patch ./common/
             cd ./common
             patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
-            patch -p1 -N -F 3 < scope_min_manual_hooks_v1.4.patch || true
+            patch -p1 -N -F 3 < scope_min_manual_hooks_v1.5.patch || true
             patch -p1 -N -F 3 < 69_hide_stuff.patch || true
           fi
           
@@ -476,6 +482,38 @@ jobs:
             echo "正在启用Re-Kernel支持(用于与Freezer,NoActive等软件配合使用,提升冻结后台能力)…"
             cd kernel_workspace
             echo "CONFIG_REKERNEL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+          
+      - name: 启用内核级基带保护
+        run: |
+          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+            echo "正在启用启用内核级基带保护支持…"
+            cd kernel_workspace
+            echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
+            cd ./common/security
+            wget https://github.com/cctv18/Baseband-guard/archive/refs/heads/master.zip
+            unzip -q master.zip
+            mv "Baseband-guard-master" baseband-guard
+            printf '\nobj-$(CONFIG_BBG) += baseband-guard/\n' >> ./Makefile
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/landlock/landlock,baseband_guard/ } }' ./Kconfig
+            awk '
+            /endmenu/ { last_endmenu_line = NR }
+            { lines[NR] = $0 }
+            END {
+              for (i=1; i<=NR; i++) {
+                if (i == last_endmenu_line) {
+                  sub(/endmenu/, "", lines[i]);
+                  print lines[i] "source \"security/baseband-guard/Kconfig\""
+                  print ""
+                  print "endmenu"
+                } else {
+                    print lines[i]
+                }
+              }
+            }
+            ' ./Kconfig > Kconfig.tmp && mv Kconfig.tmp ./Kconfig
+            sed -i 's/selinuxfs.o //g' "./selinux/Makefile"
+            cat "./baseband-guard/sepatch.txt" >> "./selinux/Makefile"
           fi
 
       - name: 添加制作名称
@@ -806,6 +844,7 @@ jobs:
             - 三星SSG IO调度器支持：${{ env.ssg_enable }}
             - Re-Kernel支持：${{ env.rekernel_enable }}
             - SUSFS模块来源：${{ github.event.inputs.susfs_source }}
+            - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
             - 推荐系统：ColorOS 15 / RealmeUI 6.0
             - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
             - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)

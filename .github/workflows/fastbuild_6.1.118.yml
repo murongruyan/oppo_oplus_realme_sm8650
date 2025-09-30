@@ -28,7 +28,7 @@ on:
         description: hook模式(大部分情况manual即可，若新版manual钩子出现问题可尝试syscall, 少数需切换sus su模式的场景才需要kprobes钩子)
         required: true
         type: choice
-        default: 'manual'
+        default: 'syscall'
         options:
           - 'manual'
           - 'syscall'
@@ -45,7 +45,7 @@ on:
         description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁及 LZ4KD 补丁(0=均不安装,1=安装lz4&zstd补丁,2=安装lz4kd补丁,3=均安装,默认1)'
         required: true
         type: choice
-        default: '1'
+        default: '3'
         options:
           - '0'
           - '1'
@@ -55,7 +55,7 @@ on:
         description: "是否启用bbr算法(优化上行数据,对手机日用无太大意义甚至可能负优化;false关闭,true仅加入算法,default设为默认)"
         required: true
         type: choice
-        default: 'false'
+        default: 'default'
         options:
           - 'false'
           - 'true'
@@ -72,7 +72,7 @@ on:
         description: '是否启用三星SSG IO调度器及Re-Kernel支持(0=均不安装,1=安装SSG IO调度器,2=安装Re-Kernel,3=均安装,默认1)'
         required: true
         type: choice
-        default: '1'
+        default: '0'
         options:
           - '0'
           - '1'
@@ -87,7 +87,26 @@ on:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
         type: string
-        default: ''
+        default: 'android14-慕容雪绒'
+      ksu_meta:
+        description: '分支名(必填)/自定义版本标识(留空不修改)/调整提交hash(留空不修改)'
+        required: false
+        type: string
+        default: 'susfs-main/慕容茹艳/'
+      build_time:
+        description: '自定义构建时间 (输入F使用当前时间)'
+        required: false
+        type: string
+        default: 'F'
+      susfs_ci:
+        description: '下载SUSFS模块调用方式'
+        required: true
+        type: choice
+        default: 'CI
+        options:
+          - 'CI'
+          - 'Release'
+          - 'NoN'
 
 jobs:
   build:
@@ -190,8 +209,33 @@ jobs:
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
             echo "正在配置SukiSU Ultra..."
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s susfs-main
+            
+            # 解析 KSU_META 参数
+            KSU_META="${{ github.event.inputs.ksu_meta }}"
+            echo "KSU_META: $KSU_META"
+            
+            # 分割 KSU_META 参数
+            IFS='/' read -r BRANCH CUSTOM_TAG MANUAL_HASH <<< "$KSU_META"
+            echo "分支: $BRANCH"
+            echo "自定义标识: $CUSTOM_TAG"
+            echo "手动哈希: $MANUAL_HASH"
+            
+            # 如果分支为空，使用默认分支
+            if [ -z "$BRANCH" ]; then
+              BRANCH="susfs-main"
+            fi
+            
+            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s "$BRANCH"
             cd ./KernelSU
+            
+            # 如果指定了手动哈希，则检出到该提交
+            if [ -n "$MANUAL_HASH" ]; then
+              echo "检出到指定提交: $MANUAL_HASH"
+              git checkout "$MANUAL_HASH" || {
+                echo "警告: 无法检出到 $MANUAL_HASH，使用当前提交"
+              }
+            fi
+            
             # 获取当前 Git 提交的短哈希 (8位)
             GIT_COMMIT_HASH=$(git rev-parse --short=8 HEAD)
             echo "当前提交哈希: $GIT_COMMIT_HASH"
@@ -213,10 +257,19 @@ jobs:
             [ -z "$KSU_API_VERSION" ] && KSU_API_VERSION="3.1.7"
             # 将 API 版本号存储到 GitHub 环境变量
             echo "KSU_API_VERSION=$KSU_API_VERSION" >> $GITHUB_ENV
-            # 创建版本定义模板&版本格式函数: 使用获取的提交哈希和固定后缀
+            # 确定版本后缀
+            if [ -n "$CUSTOM_TAG" ]; then
+              VERSION_SUFFIX="@$CUSTOM_TAG"
+              echo "使用自定义版本标识: $CUSTOM_TAG"
+            else
+              VERSION_SUFFIX="@"
+              echo "使用默认版本标识: android14-慕容茹艳"
+            fi
+            
+            # 创建版本定义模板&版本格式函数: 使用获取的提交哈希和版本后缀
             # KSU_VERSION_API: API 版本定义
             # KSU_VERSION_FULL: 完整版本定义
-            VERSION_DEFINITIONS=$'define get_ksu_version_full\nv\\$1-'"$GIT_COMMIT_HASH"$'@cctv18\nendef\n\nKSU_VERSION_API := '"$KSU_API_VERSION"$'\nKSU_VERSION_FULL := v'"$KSU_API_VERSION"$'-'"$GIT_COMMIT_HASH"$'@cctv18'
+            VERSION_DEFINITIONS=$'define get_ksu_version_full\nv\\$1-'"$GIT_COMMIT_HASH$VERSION_SUFFIX"$'\nendef\n\nKSU_VERSION_API := '"$KSU_API_VERSION"$'\nKSU_VERSION_FULL := v'"$KSU_API_VERSION"$'-'"$GIT_COMMIT_HASH$VERSION_SUFFIX"
             # 清理内核 Makefile 中的旧版本定义
             # 删除版本函数
             sed -i '/define get_ksu_version_full/,/endef/d' kernel/Makefile
@@ -243,7 +296,7 @@ jobs:
             # 验证修改结果
             grep -A10 "REPO_OWNER" kernel/Makefile  # 检查插入点后的内容
             grep "KSU_VERSION_FULL" kernel/Makefile # 确认版本定义存在
-            echo "SukiSU版本号: v${KSU_API_VERSION}-${GIT_COMMIT_HASH}@cctv18"
+            echo "SukiSU版本号: v${KSU_API_VERSION}-${GIT_COMMIT_HASH}${VERSION_SUFFIX}"
           else
             echo "正在配置KernelSU Next..."
             curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
@@ -523,6 +576,31 @@ jobs:
               sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
             done
           fi
+
+      - name: 自定义构建时间
+        shell: bash
+        run: |
+          INPUT_TIME="${{ github.event.inputs.build_time }}"
+          if [[ -n "$INPUT_TIME" && "$INPUT_TIME" != "F" && "$INPUT_TIME" != "f" ]]; then
+            DATESTR="$INPUT_TIME"
+            echo "使用输入的构建时间: $DATESTR"
+          else
+            DATESTR="$(TZ='UTC' date +'%a %b %d %T %Z %Y')"
+            echo "使用UTC时间作为默认值: $DATESTR"
+          fi
+          echo "KBUILD_BUILD_TIMESTAMP=${DATESTR}" >> "$GITHUB_ENV"
+          echo "KBUILD_BUILD_VERSION=1" >> "$GITHUB_ENV"
+          cd kernel_workspace/
+          for f in common/scripts/mkcompile_h; do
+            if [ -f "$f" ]; then
+              echo "使用构建时间修补mkcompile_h: $DATESTR"
+              if grep -q 'UTS_VERSION=' "$f"; then
+                perl -pi -e "s{UTS_VERSION=\"\\\$\\(.*?\\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $DATESTR\"}" "$f"
+              else
+                perl -0777 -pi -e "s{cat <<EOF}{cat <<EOF\n#undef UTS_VERSION\n#define UTS_VERSION \"#1 SMP PREEMPT $DATESTR\" } unless /UTS_VERSION/" "$f"
+              fi
+            fi
+          done
            
       - name: 构建内核
         run: |
@@ -587,6 +665,51 @@ jobs:
             echo "未找到内核镜像文件，构建可能出错"
             exit 1
           fi
+          
+          # 下载SUSFS模块
+          if [[ "${{ github.event.inputs.susfs_ci }}" == "CI" ]]; then
+            echo "从CI下载最新SUSFS模块..."
+            SUSFS_URL=$(curl -s "https://api.github.com/repos/simonpunk/susfs4ksu/actions/artifacts" | jq -r '.artifacts[] | select(.name == "susfs") | .archive_download_url' | head -1)
+            if [[ -n "$SUSFS_URL" ]]; then
+              curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$SUSFS_URL" -o susfs.zip
+              unzip -o susfs.zip
+              rm susfs.zip
+              echo "SUSFS模块下载完成（CI版本）"
+            else
+              echo "警告: 无法从CI获取SUSFS模块"
+            fi
+          elif [[ "${{ github.event.inputs.susfs_ci }}" == "Release" ]]; then
+            echo "从Release下载最新SUSFS模块..."
+            SUSFS_URL=$(curl -s "https://api.github.com/repos/simonpunk/susfs4ksu/releases/latest" | jq -r '.assets[] | select(.name | contains("susfs")) | .browser_download_url' | head -1)
+            if [[ -n "$SUSFS_URL" ]]; then
+              curl -L "$SUSFS_URL" -o susfs.ko
+              echo "SUSFS模块下载完成（Release版本）"
+            else
+              echo "警告: 无法从Release获取SUSFS模块"
+            fi
+          else
+             echo "跳过SUSFS模块下载"
+           fi
+           
+           # 下载SukiSU Ultra APK（仅当使用SukiSU时）
+           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
+             echo "下载最新SukiSU-Ultra APK..."
+             SUKISU_APK_URL=$(curl -s "https://api.github.com/repos/SukiSU-Ultra/SukiSU-Ultra/actions/artifacts" | jq -r '.artifacts[] | select(.name == "SukiSU-Ultra") | .archive_download_url' | head -1)
+             if [[ -n "$SUKISU_APK_URL" ]]; then
+               curl -L -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$SUKISU_APK_URL" -o sukisu-ultra.zip
+               unzip -o sukisu-ultra.zip
+               rm sukisu-ultra.zip
+               # 重命名APK文件为标准名称
+               if ls *.apk 1> /dev/null 2>&1; then
+                 mv *.apk SukiSU-Ultra.apk
+                 echo "SukiSU-Ultra APK下载完成"
+               else
+                 echo "警告: 下载的压缩包中未找到APK文件"
+               fi
+             else
+               echo "警告: 无法获取SukiSU-Ultra APK下载链接"
+             fi
+           fi
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
             KSU_TYPENAME="SukiSU"
           else

@@ -24,11 +24,6 @@ on:
         options:
           - 'sukisu'
           - 'ksunext'
-      ksu_meta:
-        description: '分支名/自定义版本标识(例如: susfs-main/慕容茹艳)'
-        required: false
-        type: string
-        default: 'susfs-main/慕容茹艳'
       susfs_source:
         description: 'SUSFS模块下载源(CI/Release/None)'
         required: true

@@ -87,11 +87,6 @@ on:
           - '1'
           - '2'
           - '3'
-      baseband_guard:
-        description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
-        required: true
-        type: boolean
-        default: 'false'
       ksu_meta:
         description: '分支名/自定义版本标识(例如: susfs-main/慕容茹艳)'
         required: false

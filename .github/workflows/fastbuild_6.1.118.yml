@@ -29,14 +29,11 @@ on:
         required: false
         type: string
         default: 'susfs-main/慕容茹艳'
-      baseband_guard:
+      neihefanggeji:
         description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
         required: true
-        type: choice
+        type: boolean
         default: 'false'
-        options:
-          - 'false'
-          - 'true'
       susfs_source:
         description: 'SUSFS模块下载源(CI/Release/None)'
         required: true
@@ -510,7 +507,7 @@ jobs:
 
       - name: 启用内核级基带保护
         run: |
-          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+          if [[ "${{ github.event.inputs.neihefanggeji }}" == "true" ]]; then
             echo "正在启用启用内核级基带保护支持…"
             cd kernel_workspace
             echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -869,7 +866,7 @@ jobs:
             - 三星SSG IO调度器支持：${{ env.ssg_enable }}
             - Re-Kernel支持：${{ env.rekernel_enable }}
             - SUSFS模块来源：${{ github.event.inputs.susfs_source }}
-            - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
+            - 内核级基带保护支持：${{ github.event.inputs.neihefanggeji }}
             - 推荐系统：ColorOS 15 / RealmeUI 6.0
             - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
             - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)

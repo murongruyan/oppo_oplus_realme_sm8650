@@ -24,11 +24,11 @@ on:
         options:
           - 'sukisu'
           - 'ksunext'
-      ksu_meta:
-        description: '分支名/自定义版本标识(例如: susfs-main/慕容茹艳)'
-        required: false
-        type: string
-        default: 'susfs-main/慕容茹艳'
+      baseband_guard:
+        description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
+        required: true
+        type: boolean
+        default: 'false'
       susfs_source:
         description: 'SUSFS模块下载源(CI/Release/None)'
         required: true
@@ -199,10 +199,8 @@ jobs:
           # 进入内核工作目录
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
-            # 解析KSU_META输入
-            META="${{ github.event.inputs.ksu_meta }}"
-            BRANCH_NAME="${META%%/*}"
-            CUSTOM_TAG="${META#*/}"
+            BRANCH_NAME="susfs-main"
+            CUSTOM_TAG="慕容茹艳"
             echo "分支名: $BRANCH_NAME"
             echo "自定义版本标识: $CUSTOM_TAG"
 
@@ -498,6 +496,39 @@ jobs:
             echo "正在启用Re-Kernel支持(用于与Freezer,NoActive等软件配合使用,提升冻结后台能力)…"
             cd kernel_workspace
             echo "CONFIG_REKERNEL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+          
+      - name: 启用内核级基带保护
+        run: |
+          if [[ "${{ github.event.inputs.baseband_guard }}" == "true" ]]; then
+            echo "正在启用启用内核级基带保护支持…"
+            cd kernel_workspace
+            echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
+            cd ./common/security
+            wget https://github.com/cctv18/Baseband-guard/archive/refs/heads/master.zip
+            unzip -q master.zip
+            mv "Baseband-guard-master" baseband-guard
+            printf '\nobj-$(CONFIG_BBG) += baseband-guard/\n' >> ./Makefile
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/landlock/landlock,baseband_guard/ } }' ./Kconfig
+            awk '
+            /endmenu/ { last_endmenu_line = NR }
+            { lines[NR] = $0 }
+            END {
+              for (i=1; i<=NR; i++) {
+                if (i == last_endmenu_line) {
+                  sub(/endmenu/, "", lines[i]);
+                  print lines[i] "source \"security/baseband-guard/Kconfig\""
+                  print ""
+                  print "endmenu"
+                } else {
+                    print lines[i]
+                }
+              }
+            }
+            ' ./Kconfig > Kconfig.tmp && mv Kconfig.tmp ./Kconfig
+            sed -i 's/selinuxfs.o //g' "./selinux/Makefile"
+            sed -i 's/hooks.o //g' "./selinux/Makefile"
+            cat "./baseband-guard/sepatch.txt" >> "./selinux/Makefile"
           fi
 
       - name: 添加制作名称
@@ -828,6 +859,7 @@ jobs:
             - 三星SSG IO调度器支持：${{ env.ssg_enable }}
             - Re-Kernel支持：${{ env.rekernel_enable }}
             - SUSFS模块来源：${{ github.event.inputs.susfs_source }}
+            - 内核级基带保护支持：${{ github.event.inputs.baseband_guard }}
             - 推荐系统：ColorOS 15 / RealmeUI 6.0
             - SukiSU Ultra管理器下载：[SukiSU-Ultra](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases)
             - KernelSU Next管理器下载：[KernelSU-Next](https://github.com/KernelSU-Next/KernelSU-Next/releases)

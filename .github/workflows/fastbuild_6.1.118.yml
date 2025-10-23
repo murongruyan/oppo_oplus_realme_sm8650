@@ -726,45 +726,6 @@ jobs:
             exit 1
           fi
 
-      - name: 下载最新 SUSFS 模块
-        continue-on-error: true
-        run: |
-          cd kernel_workspace/AnyKernel3
-          echo "正在尝试从 CI 下载最新 SUSFS 模块..."
-    
-          # 尝试从 CI 下载
-          LATEST_RUN_ID=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-          "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs?status=success" | \
-          jq -r '.workflow_runs[] | select(.head_branch == "v1.5.2+") | .id' | head -n 1)
-    
-          if [ -n "$LATEST_RUN_ID" ]; then
-            ARTIFACT_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs/$LATEST_RUN_ID/artifacts" | jq -r '.artifacts[0].archive_download_url')
-      
-            if [ -n "$ARTIFACT_URL" ]; then
-              if curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" -o ksu_module_susfs_1.5.2+_CI.zip "$ARTIFACT_URL"; then
-                echo "CI 版本下载成功"
-                cp ksu_module_susfs_1.5.2+_CI.zip ./
-                exit 0  # 下载成功，直接退出
-              else
-                echo "CI 版本下载失败"
-              fi
-            else
-              echo "无法获取 CI 构件 URL"
-            fi
-          else
-            echo "没有找到 v1.5.2+ 分支的成功构建"
-        fi
-
-        # 如果 CI 下载失败，尝试从 Release 下载
-        echo "正在尝试从 Release 下载..."
-        if wget -q --show-progress -O ksu_module_susfs_1.5.2+_Release.zip https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip; then
-          echo "Release 版本下载成功"
-          cp ksu_module_susfs_1.5.2+_Release.zip ./
-        else
-          echo "Release 版本下载失败，跳过"
-        fi
-
       - name: 下载最新 SukiSU-Ultra APK
         if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
         continue-on-error: true

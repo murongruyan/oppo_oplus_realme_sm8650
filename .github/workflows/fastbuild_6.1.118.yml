@@ -726,23 +726,54 @@ jobs:
             exit 1
           fi
 
-      - name: 下载最新 SukiSU-Ultra APK
+      - name: 下载 SukiSU 相关文件
         if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd kernel_workspace/AnyKernel3
+    
+          # 下载 SUSFS 模块
+          echo "正在尝试从 CI 下载最新 SUSFS 模块..."
+          LATEST_RUN_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs?status=success" | \
+          jq -r '.workflow_runs[] | select(.head_branch == "v1.5.2+") | .id' | head -n 1)
+    
+          if [ -n "$LATEST_RUN_ID" ]; then
+            ARTIFACT_URL=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs/$LATEST_RUN_ID/artifacts" | jq -r '.artifacts[0].archive_download_url')
+            if [ -n "$ARTIFACT_URL" ] && [ "$ARTIFACT_URL" != "null" ]; then
+              curl -L -H "Authorization: Bearer $GITHUB_TOKEN" -o ksu_module_susfs_1.5.2+_CI.zip "$ARTIFACT_URL"
+              if [ $? -eq 0 ]; then
+                cp ksu_module_susfs_1.5.2+_CI.zip ./
+                echo "成功从 CI 下载 SUSFS 模块"
+              fi
+            fi
+          fi
+    
+          if [ ! -f "ksu_module_susfs_1.5.2+_CI.zip" ]; then
+            echo "CI 下载失败，尝试从 Release 下载 SUSFS 模块..."
+            wget -O ksu_module_susfs_1.5.2+_Release.zip https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
+            if [ $? -eq 0 ]; then
+              cp ksu_module_susfs_1.5.2+_Release.zip ./
+              echo "成功从 Release 下载 SUSFS 模块"
+            else
+              echo "CI 和 Release 下载均失败，跳过 SUSFS 模块下载"
+            fi
+          fi
+    
+          # 下载 SukiSU-Ultra APK
           echo "正在从 CI 下载最新 SukiSU-Ultra APK..."
           run_id=$(gh api \
-            "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=1" \
-            --jq '.workflow_runs[0].id' || echo "")
+          "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=1" \
+          --jq '.workflow_runs[0].id' || echo "")
           if [[ -z "$run_id" ]]; then
             echo "没有找到成功的 workflow 运行"
           else
             artifact_url=$(gh api \
-              "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" | \
-              jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
+            "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" | \
+            jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
             if [[ -z "$artifact_url" ]]; then
               echo "没有找到名为 'manager' 的构件"
             else

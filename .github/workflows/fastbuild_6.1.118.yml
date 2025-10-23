@@ -75,12 +75,12 @@ on:
         description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
         required: false
         type: boolean
-        default: 'false'
+        default: 'true'
       ccache_debug:
         description: '是否上传 Ccache调试日志(用于调试, 无需要可关闭)'
         required: false
         type: boolean
-        default: 'false'
+        default: 'true'
       kernel_suffix:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
@@ -746,20 +746,20 @@ jobs:
             if [ -n "$ARTIFACT_URL" ] && [ "$ARTIFACT_URL" != "null" ]; then
               curl -L -H "Authorization: Bearer $GITHUB_TOKEN" -o ksu_module_susfs_1.5.2+_CI.zip "$ARTIFACT_URL"
               if [ $? -eq 0 ]; then
-                cp ksu_module_susfs_1.5.2+_CI.zip ./
                 echo "成功从 CI 下载 SUSFS 模块"
+              else
+                echo "CI 下载失败"
               fi
             fi
           fi
     
           if [ ! -f "ksu_module_susfs_1.5.2+_CI.zip" ]; then
-            echo "CI 下载失败，尝试从 Release 下载 SUSFS 模块..."
+            echo "尝试从 Release 下载 SUSFS 模块..."
             wget -O ksu_module_susfs_1.5.2+_Release.zip https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
             if [ $? -eq 0 ]; then
-              cp ksu_module_susfs_1.5.2+_Release.zip ./
               echo "成功从 Release 下载 SUSFS 模块"
             else
-              echo "CI 和 Release 下载均失败，跳过 SUSFS 模块下载"
+              echo "Release 下载失败，跳过 SUSFS 模块下载"
             fi
           fi
     
@@ -779,9 +779,14 @@ jobs:
             else
               echo "正在从: $artifact_url 下载"
               curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
-              unzip -j manager.zip "*.apk" -d ./
-              # 删除下载的 zip 文件，只保留解压后的 APK
-              rm -f manager.zip
+              if [ $? -eq 0 ]; then
+                unzip -j manager.zip "*.apk" -d ./
+                # 删除下载的 zip 文件，只保留解压后的 APK
+                rm -f manager.zip
+                echo "成功下载 SukiSU-Ultra APK"
+              else
+                echo "下载 SukiSU-Ultra APK 失败"
+              fi
             fi
           fi
 

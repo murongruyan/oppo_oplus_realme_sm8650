@@ -740,13 +740,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd kernel_workspace/AnyKernel3
-    
+
           # 下载 SUSFS 模块
           echo "正在尝试从 CI 下载最新 SUSFS 模块..."
           LATEST_RUN_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
           "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs?status=success" | \
           jq -r '.workflow_runs[] | select(.head_branch == "v1.5.2+") | .id' | head -n 1)
-    
+
           if [ -n "$LATEST_RUN_ID" ]; then
             ARTIFACT_URL=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
             "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs/$LATEST_RUN_ID/artifacts" | jq -r '.artifacts[0].archive_download_url')
@@ -759,7 +759,7 @@ jobs:
               fi
             fi
           fi
-    
+
           if [ ! -f "ksu_module_susfs_1.5.2+_CI.zip" ]; then
             echo "尝试从 Release 下载 SUSFS 模块..."
             wget -O ksu_module_susfs_1.5.2+_Release.zip https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
@@ -769,33 +769,52 @@ jobs:
               echo "Release 下载失败，跳过 SUSFS 模块下载"
             fi
           fi
-    
-          # 下载 SukiSU-Ultra APK
+
+          # 下载 SukiSU-Ultra APK - 改进版本，会尝试多个 workflow 运行
           echo "正在从 CI 下载最新 SukiSU-Ultra APK..."
-          run_id=$(gh api \
-          "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=1" \
-          --jq '.workflow_runs[0].id' || echo "")
-          if [[ -z "$run_id" ]]; then
+          MAX_ATTEMPTS=10  # 最大尝试次数
+          ATTEMPT=0
+          APK_FOUND=false
+
+          # 获取成功的 workflow 运行列表
+          RUN_IDS=$(gh api \
+          "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=$MAX_ATTEMPTS" \
+          --jq '.workflow_runs[].id' 2>/dev/null || echo "")
+
+          if [[ -z "$RUN_IDS" ]]; then
             echo "没有找到成功的 workflow 运行"
           else
+            # 遍历每个运行 ID，查找 manager 构件
+            while IFS= read -r run_id && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            ((ATTEMPT++))
+            echo "正在检查运行 $run_id (尝试 $ATTEMPT/$MAX_ATTEMPTS)..."
+        
             artifact_url=$(gh api \
-            "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" | \
+            "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" 2>/dev/null | \
             jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
-            if [[ -z "$artifact_url" ]]; then
-              echo "没有找到名为 'manager' 的构件"
-            else
-              echo "正在从: $artifact_url 下载"
+        
+            if [[ -n "$artifact_url" ]]; then
+              echo "在运行 $run_id 中找到 manager 构件，正在从: $artifact_url 下载"
               curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
               if [ $? -eq 0 ]; then
                 unzip -j manager.zip "*.apk" -d ./
-                # 删除下载的 zip 文件，只保留解压后的 APK
                 rm -f manager.zip
                 echo "成功下载 SukiSU-Ultra APK"
+                APK_FOUND=true
+                break
               else
-                echo "下载 SukiSU-Ultra APK 失败"
+                echo "下载失败，继续尝试下一个运行..."
+                rm -f manager.zip
               fi
+            else
+              echo "运行 $run_id 中没有找到名为 'manager' 的构件，继续尝试下一个运行..."
             fi
+          done <<< "$RUN_IDS"
+
+          if [ "$APK_FOUND" = false ]; then
+            echo "已尝试 $MAX_ATTEMPTS 个运行，均未找到可用的 manager 构件"
           fi
+        fi
 
       - name: 重新打包 AnyKernel3 (包含下载的文件)
         if: ${{ github.event.inputs.ksu_type == 'sukisu' }}

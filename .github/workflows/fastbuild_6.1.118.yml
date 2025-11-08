@@ -785,36 +785,40 @@ jobs:
             echo "没有找到成功的 workflow 运行"
           else
             # 遍历每个运行 ID，查找 manager 构件
-            while IFS= read -r run_id && [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-            ((ATTEMPT++))
-            echo "正在检查运行 $run_id (尝试 $ATTEMPT/$MAX_ATTEMPTS)..."
+            for run_id in $RUN_IDS; do
+              ((ATTEMPT++))
+              echo "正在检查运行 $run_id (尝试 $ATTEMPT/$MAX_ATTEMPTS)..."
         
-            artifact_url=$(gh api \
-            "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" 2>/dev/null | \
-            jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
+              artifact_url=$(gh api \
+              "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" 2>/dev/null | \
+              jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
         
-            if [[ -n "$artifact_url" ]]; then
-              echo "在运行 $run_id 中找到 manager 构件，正在从: $artifact_url 下载"
-              curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
-              if [ $? -eq 0 ]; then
-                unzip -j manager.zip "*.apk" -d ./
-                rm -f manager.zip
-                echo "成功下载 SukiSU-Ultra APK"
-                APK_FOUND=true
-                break
+              if [[ -n "$artifact_url" ]]; then
+                echo "在运行 $run_id 中找到 manager 构件，正在从: $artifact_url 下载"
+                curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
+                if [ $? -eq 0 ]; then
+                  unzip -j manager.zip "*.apk" -d ./
+                  rm -f manager.zip
+                  echo "成功下载 SukiSU-Ultra APK"
+                  APK_FOUND=true
+                  break
+                else
+                  echo "下载失败，继续尝试下一个运行..."
+                  rm -f manager.zip
+                fi
               else
-                echo "下载失败，继续尝试下一个运行..."
-                rm -f manager.zip
+                echo "运行 $run_id 中没有找到名为 'manager' 的构件，继续尝试下一个运行..."
               fi
-            else
-              echo "运行 $run_id 中没有找到名为 'manager' 的构件，继续尝试下一个运行..."
-            fi
-          done <<< "$RUN_IDS"
+        
+              if [ $ATTEMPT -ge $MAX_ATTEMPTS ]; then
+                break
+              fi
+            done
 
-          if [ "$APK_FOUND" = false ]; then
-            echo "已尝试 $MAX_ATTEMPTS 个运行，均未找到可用的 manager 构件"
+            if [ "$APK_FOUND" = false ]; then
+              echo "已尝试 $MAX_ATTEMPTS 个运行，均未找到可用的 manager 构件"
+            fi
           fi
-        fi
 
       - name: 重新打包 AnyKernel3 (包含下载的文件)
         if: ${{ github.event.inputs.ksu_type == 'sukisu' }}

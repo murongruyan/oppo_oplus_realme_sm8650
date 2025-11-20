@@ -23,7 +23,7 @@ on:
         description: '是否开启kpm(仅对sukisu生效; 可能轻微增加耗电，不需要可保持默认关闭)'
         required: true
         type: choice
-        default: 'false'
+        default: 'true'
         options:
           - 'true'
           - 'false'
@@ -31,7 +31,7 @@ on:
         description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁及 LZ4KD 补丁(0=均不安装,1=安装lz4&zstd补丁,2=安装lz4kd补丁,3=均安装,默认1)'
         required: true
         type: choice
-        default: '1'
+        default: '3'
         options:
           - '0'
           - '1'
@@ -41,7 +41,7 @@ on:
         description: "是否启用bbr算法(优化上行数据,对手机日用无太大意义甚至可能负优化;false关闭,true仅加入算法,default设为默认)"
         required: true
         type: choice
-        default: 'false'
+        default: 'default'
         options:
           - 'false'
           - 'true'
@@ -58,7 +58,7 @@ on:
         description: '是否启用三星SSG IO调度器及Re-Kernel支持(0=均不安装,1=安装SSG IO调度器,2=安装Re-Kernel,3=均安装,默认1)'
         required: true
         type: choice
-        default: '1'
+        default: '0'
         options:
           - '0'
           - '1'
@@ -68,7 +68,7 @@ on:
         description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
         required: true
         type: boolean
-        default: 'true'
+        default: 'false'
       ccache_debug:
         description: '是否上传 Ccache调试日志(用于调试, 无需要可关闭)'
         required: true
@@ -78,7 +78,7 @@ on:
         description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
         required: false
         type: string
-        default: ''
+        default: 'android14-慕容雪绒'
 
 jobs:
   build:
@@ -179,8 +179,13 @@ jobs:
           # 进入内核工作目录
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
+            BRANCH_NAME="susfs-main"
+            CUSTOM_TAG="慕容茹艳"
+            echo "分支名: $BRANCH_NAME"
+            echo "自定义版本标识: $CUSTOM_TAG"
+
             echo "正在配置SukiSU Ultra..."
-            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s susfs-main
+            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/refs/heads/main/kernel/setup.sh" | bash -s "$BRANCH_NAME"
             cd ./KernelSU
             # 获取当前 Git 提交的短哈希 (8位)
             GIT_COMMIT_HASH=$(git rev-parse --short=8 HEAD)
@@ -189,7 +194,7 @@ jobs:
             # 尝试最多 3 次获取 KernelSU API 版本号
             for i in {1..3}; do
               # 从远程 Makefile 中提取 KSU_API_VERSION
-              KSU_API_VERSION=$(curl -s "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/susfs-main/kernel/Makefile" | 
+              KSU_API_VERSION=$(curl -s "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/$BRANCH_NAME/kernel/Makefile" | 
                 # 查找第一个包含版本定义的行
                 grep -m1 "KSU_VERSION_API :=" | 
                 # 提取等号后的值
@@ -203,10 +208,17 @@ jobs:
             [ -z "$KSU_API_VERSION" ] && KSU_API_VERSION="3.1.7"
             # 将 API 版本号存储到 GitHub 环境变量
             echo "KSU_API_VERSION=$KSU_API_VERSION" >> $GITHUB_ENV
-            # 创建版本定义模板&版本格式函数: 使用获取的提交哈希和固定后缀
-            # KSU_VERSION_API: API 版本定义
-            # KSU_VERSION_FULL: 完整版本定义
-            VERSION_DEFINITIONS=$'define get_ksu_version_full\nv\\$1-'"$GIT_COMMIT_HASH"$'@cctv18\nendef\n\nKSU_VERSION_API := '"$KSU_API_VERSION"$'\nKSU_VERSION_FULL := v'"$KSU_API_VERSION"$'-'"$GIT_COMMIT_HASH"$'@cctv18'
+
+            # 构造版本字符串
+            if [[ -z "$CUSTOM_TAG" || "$CUSTOM_TAG" == "$BRANCH_NAME" ]]; then
+              VERSION_FULL="v$KSU_API_VERSION-$GIT_COMMIT_HASH@$BRANCH_NAME"
+            else
+              VERSION_FULL="v$KSU_API_VERSION-$CUSTOM_TAG@$BRANCH_NAME[$GIT_COMMIT_HASH]"
+            fi
+
+            # 创建版本定义模板&版本格式函数
+            VERSION_DEFINITIONS=$'define get_ksu_version_full\n'"$VERSION_FULL"$'\nendef\n\nKSU_VERSION_API := '"$KSU_API_VERSION"$'\nKSU_VERSION_FULL := '"$VERSION_FULL"
+
             # 清理内核 Makefile 中的旧版本定义
             # 删除版本函数
             sed -i '/define get_ksu_version_full/,/endef/d' kernel/Makefile
@@ -233,7 +245,7 @@ jobs:
             # 验证修改结果
             grep -A10 "REPO_OWNER" kernel/Makefile  # 检查插入点后的内容
             grep "KSU_VERSION_FULL" kernel/Makefile # 确认版本定义存在
-            echo "SukiSU版本号: v${KSU_API_VERSION}-${GIT_COMMIT_HASH}@cctv18"
+            echo "SukiSU版本号: $VERSION_FULL"
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksunext" ]]; then
             echo "正在配置KernelSU Next..."
             curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
@@ -637,28 +649,200 @@ jobs:
             mv oImage Image
           fi
           
-      - name: 克隆 AnyKernel3 并打包
+      - name: 克隆 AnyKernel3 并准备打包
         run: |
           cd kernel_workspace
+          # 设置变量
+          REPO_URL="https://github.com/murongruyan/oppo_oplus_realme_sm8650"
+          ANYKERNEL_URL="${REPO_URL}/raw/main/anykernel.sh"
+          ZRAM_URL="${REPO_URL}/raw/main/zram.zip"
+    
+          # 克隆 AnyKernel3
           git clone https://github.com/cctv18/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           cd AnyKernel3
+
+          # 复制内核镜像
           cp ../common/out/arch/arm64/boot/Image ./Image
           if [[ ! -f ./Image ]]; then
-            echo "未找到内核镜像文件，构建可能出错"
+            echo "❌ 未找到内核镜像文件，构建可能出错"
             exit 1
           fi
+
+          # 设置内核类型名称
+          if [[ "${{ github.event.inputs.ksu_type }}" == "sukisu" ]]; then
+            KSU_TYPENAME="SukiSU"
+          else
+            KSU_TYPENAME="KSUNext"
+          fi
+
+          # 1. 下载自定义 anykernel.sh 脚本
+          echo "⬇️ 下载自定义 anykernel.sh 脚本..."
+          # 备份原始文件
+          [[ -f anykernel.sh ]] && mv anykernel.sh anykernel.sh.bak
+
+          if curl -L --connect-timeout 30 --retry 3 --retry-delay 5 --progress-bar -O "${ANYKERNEL_URL}"; then
+            # 验证文件完整性
+            if [[ ! -s anykernel.sh ]]; then
+              echo "⚠️ 警告: anykernel.sh 文件为空"
+              # 恢复备份
+              [[ -f anykernel.sh.bak ]] && mv anykernel.sh.bak anykernel.sh
+            else
+              chmod +x anykernel.sh
+              echo "✅ anykernel.sh 下载成功 (大小: $(du -h anykernel.sh | cut -f1))"
+              rm -f anykernel.sh.bak  # 删除备份
+            fi
+          else
+            echo "⚠️ anykernel.sh 下载失败"
+            # 恢复备份
+            [[ -f anykernel.sh.bak ]] && mv anykernel.sh.bak anykernel.sh
+          fi
+
+          # 确保最终有可用的 anykernel.sh
+          if [[ -f anykernel.sh ]]; then
+            chmod +x anykernel.sh
+          else
+            echo "❌ 错误：无可用 anykernel.sh 脚本"
+            exit 1
+          fi
+
+          # 2. 按需下载 zram 模块
+          if [[ "${{ github.event.inputs.lz4_enable }}" =~ ^[23]$ ]]; then
+            echo "⬇️ 下载 zram.zip 模块..."
+            if curl -L --connect-timeout 30 --retry 3 --retry-delay 5 --progress-bar -o zram.zip "${ZRAM_URL}"; then
+              # 验证文件类型
+              if [[ $(file -b --mime-type zram.zip) != "application/zip" ]]; then
+                echo "⚠️ 警告: zram.zip 文件类型错误，删除无效文件"
+                rm -f zram.zip
+              else
+                echo "✅ zram.zip 下载成功 (大小: $(du -h zram.zip | cut -f1))"
+              fi
+            else
+              echo "⚠️ zram.zip 下载失败"
+            fi
+          fi
+
+          # 打包操作
+          ZIP_PREFIX="AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15"
+          if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
+            ZIP_NAME="../${ZIP_PREFIX}_${{ github.event.inputs.kernel_suffix }}.zip"
+          else
+            ZIP_NAME="../${ZIP_PREFIX}_${{ env.KERNEL_NAME }}.zip"
+          fi
+
+          # 创建压缩包
+          echo "📦 正在创建压缩包: $(basename "${ZIP_NAME}")"
+          zip -r9 "${ZIP_NAME}" ./*
+
+          # 验证压缩包
+          if [[ -f "${ZIP_NAME}" ]]; then
+            echo "✅ 打包成功！文件大小: $(du -h "${ZIP_NAME}" | cut -f1)"
+            # 添加额外校验
+            if ! unzip -tq "${ZIP_NAME}" &>/dev/null; then
+              echo "❌ 压缩包校验失败，文件可能损坏"
+              exit 1
+            fi
+          else
+            echo "❌ 打包失败，未生成压缩包"
+            exit 1
+          fi
+
+      - name: 下载 SukiSU 相关文件
+        if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd kernel_workspace/AnyKernel3
+
+          # 下载 SUSFS 模块
+          echo "正在尝试从 CI 下载最新 SUSFS 模块..."
+          LATEST_RUN_ID=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs?status=success" | \
+          jq -r '.workflow_runs[] | select(.head_branch == "v1.5.2+") | .id' | head -n 1)
+
+          if [ -n "$LATEST_RUN_ID" ]; then
+            ARTIFACT_URL=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/sidex15/susfs4ksu-module/actions/runs/$LATEST_RUN_ID/artifacts" | jq -r '.artifacts[0].archive_download_url')
+            if [ -n "$ARTIFACT_URL" ] && [ "$ARTIFACT_URL" != "null" ]; then
+              curl -L -H "Authorization: Bearer $GITHUB_TOKEN" -o ksu_module_susfs_1.5.2+_CI.zip "$ARTIFACT_URL"
+              if [ $? -eq 0 ]; then
+                echo "成功从 CI 下载 SUSFS 模块"
+              else
+                echo "CI 下载失败"
+              fi
+            fi
+          fi
+
+          if [ ! -f "ksu_module_susfs_1.5.2+_CI.zip" ]; then
+            echo "尝试从 Release 下载 SUSFS 模块..."
+            wget -O ksu_module_susfs_1.5.2+_Release.zip https://github.com/sidex15/ksu_module_susfs/releases/latest/download/ksu_module_susfs_1.5.2+.zip
+            if [ $? -eq 0 ]; then
+              echo "成功从 Release 下载 SUSFS 模块"
+            else
+              echo "Release 下载失败，跳过 SUSFS 模块下载"
+            fi
+          fi
+
+          # 下载 SukiSU-Ultra APK - 添加循环查找功能
+          echo "正在从 CI 下载最新 SukiSU-Ultra APK..."
+    
+          # 获取成功的工作流运行列表（按时间倒序，最新的在前）
+          workflow_runs=$(gh api \
+          "repos/SukiSU-Ultra/SukiSU-Ultra/actions/workflows/build-manager.yml/runs?branch=main&status=success&per_page=10" \
+          --jq '.workflow_runs[].id' 2>/dev/null || echo "")
+
+          if [[ -z "$workflow_runs" ]]; then
+            echo "没有找到成功的 workflow 运行"
+            exit 0
+          fi
+
+          apk_downloaded=false
+
+          # 循环遍历每个工作流运行
+          while IFS= read -r run_id && [[ $apk_downloaded == false ]]; do
+            echo "检查工作流运行: $run_id"
+
+            # 获取该运行的所有构件
+            artifact_info=$(gh api "repos/SukiSU-Ultra/SukiSU-Ultra/actions/runs/$run_id/artifacts" 2>/dev/null)
+
+            if [[ -n "$artifact_info" ]]; then
+              # 查找名为 'manager' 的构件
+              artifact_url=$(echo "$artifact_info" | jq -r '.artifacts[] | select(.name == "manager") | .archive_download_url' | head -n1)
+
+              if [[ -n "$artifact_url" && "$artifact_url" != "null" ]]; then
+                echo "在工作流运行 $run_id 中找到 'manager' 构件，正在从: $artifact_url 下载"
+                curl -fL -H "Authorization: token $GITHUB_TOKEN" -o manager.zip "$artifact_url"
+                if [ $? -eq 0 ]; then
+                  unzip -j manager.zip "*.apk" -d ./
+                  # 删除下载的 zip 文件，只保留解压后的 APK
+                  rm -f manager.zip
+                  echo "成功从工作流运行 $run_id 下载 SukiSU-Ultra APK"
+                  apk_downloaded=true
+                else
+                  echo "从工作流运行 $run_id 下载 SukiSU-Ultra APK 失败，尝试下一个运行"
+                fi
+              else
+                echo "工作流运行 $run_id 中没有找到名为 'manager' 的构件，尝试下一个运行"
+              fi
+            else
+              echo "无法获取工作流运行 $run_id 的构件信息，尝试下一个运行"
+            fi
+          done <<< "$workflow_runs"
+
+          if [[ $apk_downloaded == false ]]; then
+            echo "在所有成功的工作流运行中都没有找到可用的 'manager' 构件"
+          fi
+
+      - name: 重新打包 AnyKernel3 (包含下载的文件)
+        if: ${{ github.event.inputs.ksu_type == 'sukisu' }}
+        run: |
+          cd kernel_workspace
+          cd AnyKernel3
           if [[ ${{ github.event.inputs.ksu_type }} == "sukisu" ]]; then
             KSU_TYPENAME="SukiSU"
-          elif [[ ${{ github.event.inputs.ksu_type }} == "ksunext" ]]; then
-            KSU_TYPENAME="KSUNext"
-          elif [[ ${{ github.event.inputs.ksu_type }} == "mksu" ]]; then
-            KSU_TYPENAME="MKSU"
           else
-            KSU_TYPENAME="KSU"
-          fi
-          if [[ "${{ github.event.inputs.lz4_enable }}" == "2" || "${{ github.event.inputs.lz4_enable }}" == "3" ]]; then
-            wget https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8650/refs/heads/main/zram.zip
+            KSU_TYPENAME="KSUNext"
           fi
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
             zip -r ../AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_A15_${{ github.event.inputs.kernel_suffix }}.zip ./*
